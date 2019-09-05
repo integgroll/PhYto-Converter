@@ -73,7 +73,7 @@ ARGUMENTS_ARRAY_BOOL_ARGUMENT = ast.Dict(keys=[
 
 
 
-EXPLOIT_FUNCTION_DEFINITION = ast.FunctionDef(name='exploit', args=ast.arguments(args=[
+EXPLOIT_FUNCTION_DEFINITION = ast.FunctionDef(name='execute', args=ast.arguments(args=[
             ast.arg(arg='self', annotation=None, lineno=27, col_offset=16),
           ], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]), body=[
             ast.Pass(lineno=28, col_offset=8),

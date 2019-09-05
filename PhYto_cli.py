@@ -10,7 +10,7 @@ def main():
     arguments, module_arguments = argument_parser.parse_known_args()
 
     module_handle = importlib.import_module("modules.{module_name}".format(module_name=arguments.module_name))
-    tots_module_for_execution = module_handle.TotsModule(module_arguments)
+    tots_module_for_execution = module_handle.PhYtoModule(module_arguments)
 
     tots_module_for_execution.execute()
 
