@@ -161,7 +161,7 @@ class PhYtographer_demainer(ast.NodeTransformer):
         is_it_main = False
         if isinstance(node.test, ast.Compare):
             if node.test.left.id == '__name__':
-                if ast.Eq() in node.test.ops:
+                if True in [True for op in node.test.ops if isinstance(op, ast.Eq)]:
                     for comparator in node.test.comparators:
                         if isinstance(comparator, ast.Str):
                             if comparator.s == "__main__":
@@ -185,6 +185,7 @@ class PhYtographer_remainer(ast.NodeTransformer):
                 if node.value.func.id in self.functions_by_name:
                     self.function_names_to_delete.append(node.value.func.id)
                     return self.functions_by_name.get(node.value.func.id, []).body
+        return node
 
 
 class PhYtographer_assistant(ast.NodeVisitor):
@@ -311,6 +312,7 @@ class PhYtographer_argparse(ast.NodeTransformer):
         # But totally screw the from argparse import * nonsense
         self.argparse_variable_names = ["argparse"]
         self.found_arguments = []
+        self.found_parsed_argument_handles = []
 
     def visit_Assign(self, node):
         # Find the instances of argparse that are an ArgumentParser and add them to the argparse_variable_names section
@@ -318,10 +320,27 @@ class PhYtographer_argparse(ast.NodeTransformer):
             if isinstance(node.value, ast.Call):
                 if isinstance(node.value.func, ast.Attribute):
                     if isinstance(node.value.func.value, ast.Name):
+                        # Finds the Argparse instances of Argument Parser or similar
                         if node.value.func.value.id in self.argparse_variable_names and node.value.func.attr in [
                             "ArgumentParser", "add_argument_group", "add_mutually_exclusive_group"]:
                             self.argparse_variable_names.append(node.targets[0].id)
                             return None
+                        # Finds parsed args variable names to replace with self later
+                        if len(node.targets) == 1:
+                            if hasattr(node.value, "func"):
+                                if node.value.func.attr == "parse_args":
+                                    if node.value.func.value.id in self.argparse_variable_names:
+                                        self.found_parsed_argument_handles.append(node.targets[0].id)
+                                        return None
+        return node
+
+    def visit_Attribute(self, node):
+        if isinstance(node.value, ast.Name):
+            if node.value.id in self.found_parsed_argument_handles:
+                print("Found and replaced ", node.value.id, ".", node.attr)
+                print(self.found_parsed_argument_handles)
+                node.value.id = 'self'
+                return node
         return node
 
     def visit_Expr(self, node):
@@ -357,10 +376,15 @@ class Dektol:
 
         arg_parse_theif = PhYtographer_argparse()
         arg_parse_theif.visit(self.module_handle.parsed_ast_handle)
+        print(arg_parse_theif.found_arguments)
+        print(arg_parse_theif.found_parsed_argument_handles)
 
         self.module_arguments = {"argparse": arg_parse_theif.found_arguments,
                                  "found": phytographer.possible_variables()}
-        self.module_argument_names = [*[argument.get("static",[])[-1].lstrip("-") for argument in self.module_arguments.get("argparse",[])],*list(self.module_arguments.get("found",{}).keys())]
+        self.module_argument_names = [
+            *[argument.get("static", [])[-1].lstrip('-').replace('-', '_') for argument in
+              self.module_arguments.get("argparse", [])],
+            *list(self.module_arguments.get("found", {}).keys())]
 
         self.module_imports = phytographer.stats.get("import_info", {})
         self.import_array = []  # This is an output section
@@ -431,6 +455,7 @@ class Dektol:
                     setattr(argument_item_object.values[replacement.get("location", 0)],
                             replacement.get("call", "s"),
                             argument["keyword"].get(name))
+            argument_item_object.values[0].s = argument["static"][-1].lstrip('-').replace('-', '_')
             arguments_array_object.body[0].value.elts.append(argument_item_object)
         return arguments_array_object
 
@@ -491,18 +516,32 @@ class Dektol:
         return exploit_function
 
 
+class TestVisitor(ast.NodeVisitor):
+    def __init__(self):
+        pass
+
+    def visit_Call(self, node):
+        print(ast.dump(node))
+
+
 def main():
     directory_for_running = "exploitdb\\exploits"
     maker_handle = PhYtoMaker(directory=directory_for_running)
     print(len(maker_handle.find_python_files()))
     print(len(maker_handle.find_not_python_files()))
 
-    dektol_handle = Dektol("playground.py")
-    print(dektol_handle.get_pretty_source())
-    #dektol_handle = Dektol("exploitdb/exploits/java/local/44422.py")
+    # dektol_handle = Dektol("playground.py")
+    # print(dektol_handle.get_pretty_source())
+    dektol_handle = Dektol("44422.py")
 
-    #print(dektol_handle.get_pretty_source())
+    # tv = TestVisitor()
+    # tv.visit(dektol_handle.create_whole_file_ast())
+
+    with open("phyto/testfile.py", "w") as test_write:
+        test_write.write(dektol_handle.get_pretty_source())
 
 
 if __name__ == "__main__":
     main()
+
+# python -m greentreesnakes.astpp exploitdb/exploits/java/local/44422.py

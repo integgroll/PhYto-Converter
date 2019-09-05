@@ -1,6 +1,7 @@
 import ast
 
-BASE_FILE = ast.Module(body=[])
+BASE_FILE = ast.Module(body=[ast.ImportFrom(module='phyto.basic', names=[
+        ast.alias(name='Exploit', asname=None)], level=0, lineno=4, col_offset=0)])
 
 MODULE_DEFINITION = ast.ClassDef(name='PhYtoModule', bases=[
     ast.Name(id='Exploit', ctx=ast.Load(), lineno=7, col_offset=17),
