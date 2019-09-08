@@ -4,9 +4,11 @@ import ast
 import astor
 import copy
 import autopep8
+import multiprocessing
 from pprint import pprint
-import phyto.module_skeleton
 import phyto.phytographer
+import phyto.module_skeleton
+
 
 
 class PhYtoMaker:
@@ -19,7 +21,7 @@ class PhYtoMaker:
     def find_python_files(self):
         found_files = []
         for (dirpath, dirnames, filenames) in os.walk(self.directory):
-            found_files += ["{dirpath}{filename}".format(filename=filename, dirpath=dirpath) for filename in filenames
+            found_files += ["{dirpath}/{filename}".format(filename=filename, dirpath=dirpath) for filename in filenames
                             if filename[-3:] == ".py"]
         self.python_files = found_files
         return found_files
@@ -27,7 +29,7 @@ class PhYtoMaker:
     def find_not_python_files(self):
         found_files = []
         for (dirpath, dirnames, filenames) in os.walk(self.directory):
-            found_files += ["{dirpath}{filename}".format(filename=filename, dirpath=dirpath) for filename in filenames
+            found_files += ["{dirpath}/{filename}".format(filename=filename, dirpath=dirpath) for filename in filenames
                             if filename[-3:] != ".py"]
         self.not_python_files = found_files
         return found_files
@@ -35,9 +37,6 @@ class PhYtoMaker:
     def delete_not_python_files(self):
         for file_path_and_name in self.find_not_python_files():
             os.remove(file_path_and_name)
-
-
-
 
     @staticmethod
     def is_file_python_two(file_name):
@@ -67,21 +66,25 @@ class Dektol:
         self.raw_imports = []
         self.imported_modules = []
 
-        phytographer = phyto.phytographerPhYtographer_assistant()
+        phytographer = phyto.phytographer.PhYtographer_assistant()
         phytographer.visit(self.parsed_ast_handle)
 
-        arg_parse_theif = phyto.phytographerPhYtographer_argparse()
+        arg_parse_theif = phyto.phytographer.PhYtographer_argparse()
+        self.found_parsed_argument_handles = arg_parse_theif.found_parsed_argument_handles
         arg_parse_theif.visit(self.parsed_ast_handle)
-        print(arg_parse_theif.found_arguments)
-        print(arg_parse_theif.found_parsed_argument_handles)
+        self.found_arguments = arg_parse_theif.found_arguments
+
+        argv_theif = phyto.phytographer.PhYtographer_argv()
+        argv_theif.visit(self.parsed_ast_handle)
 
         self.module_arguments = {"argparse": arg_parse_theif.found_arguments,
-                                 "found": phytographer.possible_variables()}
+                                 "found": phytographer.possible_variables(),
+                                 "argv":argv_theif.found_argv_arguments}
         # "quick" one-liner to pull all of the variable names from the module_arguments found during argparse and phytographer tree searches
         self.module_argument_names = [
             *[argument.get("static", [])[-1].lstrip('-').replace('-', '_') for argument in
               self.module_arguments.get("argparse", [])],
-            *list(self.module_arguments.get("found", {}).keys())]
+            *list(self.module_arguments.get("found", {}).keys()),*argv_theif.found_argv_arguments]
 
         self.module_imports = phytographer.stats.get("import_info", {})
         self.import_array = []  # This is an output section
@@ -196,7 +199,7 @@ class Dektol:
         blix_result = blix_handle.visit(self.parsed_ast_handle)
 
         ## Update identified variables to use self.variable_name
-        classification_handle = phyto.phytographer.PhYtography_classifyer(
+        classification_handle = phyto.phytographer.PhYtographer_classifyer(
             variables_to_classify=self.module_argument_names)
         classification_result = classification_handle.visit(blix_result)
 
@@ -218,6 +221,14 @@ class Dektol:
         # Return a list containing the body of this converted module Until we get the partial result built.
         return exploit_function
 
+    def get_pretty_posted_source(self):
+        temp_source = self.get_pretty_source()
+        for argparse_name in self.found_parsed_argument_handles:
+            for argument_name in self.module_argument_names:
+                temp_source = temp_source.replace(
+                    "{argparse_name}.{argument_name}".format(argparse_name=argparse_name, argument_name=argument_name),
+                    "self.{argument_name}".format(argument_name=argument_name))
+        return temp_source
 
 class TestVisitor(ast.NodeVisitor):
     def __init__(self):
@@ -226,23 +237,47 @@ class TestVisitor(ast.NodeVisitor):
     def visit_Call(self, node):
         print(ast.dump(node))
 
+def run_2to3(file_name):
+    os.system("2to3 -f all -w --no-diffs --processes 10 {file}".format(file=file_name))
+
+def dektol_wrapper(inputs):
+    try:
+        file_name = inputs[0]
+        import_buffer = inputs[1]
+        dektol_handle = Dektol(file_name)
+        with open(file_name,"w") as exploit_file:
+            exploit_file.write(dektol_handle.get_pretty_posted_source())
+    except Exception as e:
+        with open("conversion_errors","a") as errors:
+            errors.write(str(e))
 
 def main():
-    directory_for_running = "exploitdb\\exploits"
+    directory_for_running = "exploits"
     maker_handle = PhYtoMaker(directory=directory_for_running)
-    print(len(maker_handle.find_python_files()))
-    print(len(maker_handle.find_not_python_files()))
+    print("""Exploit DB's exploits directory has the following""")
+    print("{pythons}: Python Modules".format(pythons =len(maker_handle.find_python_files())))
+    print("{non_pythons}: Not python modules".format(non_pythons=len(maker_handle.find_not_python_files())))
+    print("----------------------------------------------")
+    print("So let's delete the things we don't care about")
+    maker_handle.delete_not_python_files()
+    print("""Exploit DB's exploits directory has the following""")
+    print("{pythons}: Python Modules".format(pythons =len(maker_handle.find_python_files())))
+    print("{non_pythons}: Not python modules".format(non_pythons=len(maker_handle.find_not_python_files())))
+    print("----------------------------------------------")
+    print("Now we are going to do some multiprocessing and 2to3 some stuff")
+    log_handle = None
+    [dektol_wrapper((file_name, log_handle)) for file_name in maker_handle.find_python_files()]
+    print("Converted files to PhYto Modules")
+
 
     # dektol_handle = Dektol("playground.py")
     # print(dektol_handle.get_pretty_source())
-    dektol_handle = Dektol("argv_example.py")
+    #dektol_handle = Dektol("argv_example.py")
+    #dektol_handle = Dektol("44422.py")
 
-    # tv = TestVisitor()
-    # tv.visit(dektol_handle.create_whole_file_ast())
-
-    with open("phyto/testfile.py", "w") as test_write:
-        test_write.write(dektol_handle.get_pretty_source())
-
+    #with open("modules/testfile.py", "w") as test_write:
+    #    test_write.write(dektol_handle.get_pretty_posted_source())
+    #RefactoringTool: No changes to
 
 if __name__ == "__main__":
     main()

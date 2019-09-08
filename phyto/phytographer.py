@@ -7,10 +7,6 @@ class PhYtographer_classifyer(ast.NodeTransformer):
     def __init__(self, variables_to_classify=[]):
         self.variables_to_classify = variables_to_classify
 
-        # ast.Attribute(value=ast.Name(id='self', ctx=ast.Load(), lineno=33, col_offset=15), attr='apples', ctx=ast.Load(), lineno=33, col_offset=15)
-        # Name(id='tuesday', ctx=Load(), lineno=36, col_offset=0)
-        # Name(id='tuesday', ctx=Store(), lineno=36, col_offset=0)
-
     def visit_Name(self, node):
         if node.id in self.variables_to_classify:
             new_node = copy.deepcopy(phyto.module_skeleton.VARIABLE_SELF_REPLACEMENT)
@@ -110,6 +106,7 @@ class PhYtographer_assistant(ast.NodeVisitor):
         self.found_classes = []
         self.found_functions = []
         self.found_functions_by_name = {}
+        self.variables_to_not_use = []
 
     def visit_ClassDef(self, node):
         self.found_classes.append(node)
@@ -137,6 +134,10 @@ class PhYtographer_assistant(ast.NodeVisitor):
                 *self.stats["import_info"]["import_from"].get(node.module, []),
                 {"name": alias.name, "module": node.module}]
         self.generic_visit(node)
+
+    def visit_AugAssign(self,node):
+        if isinstance(node.target,ast.Name):
+            self.variables_to_not_use.append(node.target.id)
 
     def visit_Assign(self, node):
         # This only works on simple variables, basically the ones that we want to find anyways
@@ -211,8 +212,25 @@ class PhYtographer_assistant(ast.NodeVisitor):
     def possible_variables(self):
         return dict([(variable_name, variable_value) for variable_name, variable_value in self.variable_data.items() if
                      variable_value.get("current_value", False) and len(
-                         variable_value.get("previous_values", [])) == 1])
+                         variable_value.get("current_value", False)) < 30 and len(
+                         variable_value.get("previous_values", [])) == 1 and variable_name not in self.variables_to_not_use])
 
+class PhYtographer_argv(ast.NodeVisitor):
+    def __init__(self):
+        self.found_argv_arguments = []
+
+    def visit_Assign(self,node):
+        # Find the instance of argv instances
+        if hasattr(node, "targets"):
+            if len(node.targets) == 1:
+                if isinstance(node.value, ast.Subscript):
+                    if isinstance(node.value.value, ast.Attribute):
+                        if isinstance(node.value.value.value, ast.Name):
+                            if node.value.value.value.id == "sys" and node.value.value.attr == "argv":
+                                if isinstance(node.value.slice, ast.Index):
+                                    if isinstance(node.value.slice.value, ast.Num):
+                                        if node.value.slice.value.n != 0:
+                                            self.found_argv_arguments.append({"name":node.targets[0].id,"argv_number":node.value.slice.value.n})
 
 class PhYtographer_argparse(ast.NodeTransformer):
     def __init__(self):
@@ -221,6 +239,15 @@ class PhYtographer_argparse(ast.NodeTransformer):
         self.argparse_variable_names = ["argparse"]
         self.found_arguments = []
         self.found_parsed_argument_handles = []
+
+    ast.Assign(targets=[
+        ast.Name(id='target', ctx=ast.Store(), lineno=75, col_offset=15),
+    ], value=ast.Subscript(
+        value=ast.Attribute(value=ast.Name(id='sys', ctx=ast.Load(), lineno=75, col_offset=24), attr='argv',
+                            ctx=ast.Load(), lineno=75,
+                            col_offset=24), slice=ast.Index(value=ast.Num(n=1, lineno=75, col_offset=33)),
+        ctx=ast.Load(), lineno=75,
+        col_offset=24), lineno=75, col_offset=15)
 
     def visit_Assign(self, node):
         # Find the instances of argparse that are an ArgumentParser and add them to the argparse_variable_names section
@@ -245,8 +272,6 @@ class PhYtographer_argparse(ast.NodeTransformer):
     def visit_Attribute(self, node):
         if isinstance(node.value, ast.Name):
             if node.value.id in self.found_parsed_argument_handles:
-                print("Found and replaced ", node.value.id, ".", node.attr)
-                print(self.found_parsed_argument_handles)
                 node.value.id = 'self'
                 return node
         return node
